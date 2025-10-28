@@ -1,0 +1,251 @@
+# Network Policies for Zero Trust Network Segmentation
+# Implements microsegmentation - each service can only talk to required services
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: gigvault
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# CA Service - Only accepts from RA
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ca-network-policy
+  namespace: gigvault
+spec:
+  podSelector:
+    matchLabels:
+      app: ca
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from RA service
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ra
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow health checks from kube-system
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow to PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgresql
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# RA Service - Accepts from Admin UI and enrollment
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ra-network-policy
+  namespace: gigvault
+spec:
+  podSelector:
+    matchLabels:
+      app: ra
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from admin-ui
+  - from:
+    - podSelector:
+        matchLabels:
+          app: admin-ui
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow from enroll service
+  - from:
+    - podSelector:
+        matchLabels:
+          app: enroll
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow to CA
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ca
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow to PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgresql
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# OCSP Service - Public facing, read-only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ocsp-network-policy
+  namespace: gigvault
+spec:
+  podSelector:
+    matchLabels:
+      app: ocsp
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from anywhere (public OCSP endpoint)
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow to PostgreSQL (read-only)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgresql
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Admin UI - Only accepts from external load balancer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-ui-network-policy
+  namespace: gigvault
+spec:
+  podSelector:
+    matchLabels:
+      app: admin-ui
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # Allow to auth service
+  - to:
+    - podSelector:
+        matchLabels:
+          app: auth
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow to RA
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ra
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow to CA (read-only)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ca
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# PostgreSQL - Only accepts from services in namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-network-policy
+  namespace: gigvault
+spec:
+  podSelector:
+    matchLabels:
+      app: postgresql
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from all gigvault services
+  - from:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 5432
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+

@@ -1,0 +1,198 @@
+# Pod Security Standards for GigVault
+# Implements restricted security context for all pods
+
+---
+# Namespace label for Pod Security Standards
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gigvault
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# Security Context Constraints
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: gigvault-restricted
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: 'runtime/default'
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: 'runtime/default'
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+  - ALL
+  volumes:
+  - 'configMap'
+  - 'emptyDir'
+  - 'projected'
+  - 'secret'
+  - 'downwardAPI'
+  - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  supplementalGroups:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: true
+
+---
+# Service Account for CA (most privileged)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ca-service-account
+  namespace: gigvault
+
+---
+# Role for CA service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ca-role
+  namespace: gigvault
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["ca-key", "tls-certs", "jwt-keys"]
+  verbs: ["get"]
+
+---
+# RoleBinding for CA
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ca-role-binding
+  namespace: gigvault
+subjects:
+- kind: ServiceAccount
+  name: ca-service-account
+  namespace: gigvault
+roleRef:
+  kind: Role
+  name: ca-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Service Account for RA
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ra-service-account
+  namespace: gigvault
+
+---
+# Role for RA service (read-only secrets)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ra-role
+  namespace: gigvault
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["tls-certs", "jwt-keys"]
+  verbs: ["get"]
+
+---
+# RoleBinding for RA
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ra-role-binding
+  namespace: gigvault
+subjects:
+- kind: ServiceAccount
+  name: ra-service-account
+  namespace: gigvault
+roleRef:
+  kind: Role
+  name: ra-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Service Account for OCSP (least privilege - read-only)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ocsp-service-account
+  namespace: gigvault
+
+---
+# Role for OCSP (no secrets access)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ocsp-role
+  namespace: gigvault
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+
+---
+# RoleBinding for OCSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ocsp-role-binding
+  namespace: gigvault
+subjects:
+- kind: ServiceAccount
+  name: ocsp-service-account
+  namespace: gigvault
+roleRef:
+  kind: Role
+  name: ocsp-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Resource Quotas (prevent resource exhaustion attacks)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gigvault-quota
+  namespace: gigvault
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    persistentvolumeclaims: "10"
+    services.loadbalancers: "2"
+    services.nodeports: "0"  # No NodePorts allowed
+
+---
+# Limit Ranges (prevent individual pod resource abuse)
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: gigvault-limits
+  namespace: gigvault
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: 4Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+    default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+    type: Container
+
