@@ -16,6 +16,8 @@ build-all:
 
 # Deploy all services to local cluster
 deploy-local: build-all
+	@echo "Initializing databases..."
+	./scripts/init-databases.sh
 	@echo "Deploying services..."
 	./scripts/deploy-local.sh
 

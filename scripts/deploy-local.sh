@@ -43,7 +43,7 @@ for svc_info in "${SERVICES[@]}"; do
     --set image.pullPolicy="IfNotPresent" \
     --set service.port="$port" \
     --wait \
-    --timeout 2m
+    --timeout 5m
   
   echo "✓ $svc deployed"
 done
